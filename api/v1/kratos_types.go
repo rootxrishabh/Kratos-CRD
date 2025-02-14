@@ -25,17 +25,75 @@ import (
 
 // KratosSpec defines the desired state of Kratos.
 type KratosSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ProjectID specifies the Google Cloud project in which to create the cluster
+	ProjectID string `json:"projectID"`
 
-	// Foo is an example field of Kratos. Edit kratos_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ClusterName is the name of the GKE cluster to be created
+	ClusterName string `json:"clusterName"`
+
+	// Region is the geographical region where the cluster will be deployed
+	Region string `json:"region"`
+
+	// NodePools defines the node pool configurations
+	NodePools []NodePoolSpec `json:"nodePools"`
+
+	// Networking defines network-related settings
+	Networking NetworkingSpec `json:"networking"`
+}
+
+// NodePoolSpec defines the node pool configuration
+type NodePoolSpec struct {
+	Name        string `json:"name"`
+	MachineType string `json:"machineType"`
+	NodeCount   int    `json:"nodeCount"`
+	AutoScaling bool   `json:"autoScaling"`
+	MinNodes    int    `json:"minNodes,omitempty"`
+	MaxNodes    int    `json:"maxNodes,omitempty"`
+	DiskSizeGB  int    `json:"diskSizeGB,omitempty"`
+	Preemptible bool   `json:"preemptible,omitempty"`
+}
+
+// NetworkingSpec defines the network configurations for the cluster
+type NetworkingSpec struct {
+	VPCName       string `json:"vpcName"`
+	SubnetName    string `json:"subnetName"`
+	EnableIPAlias bool   `json:"enableIPAlias"`
+	PodCIDR       string `json:"podCIDR,omitempty"`
+	ServiceCIDR   string `json:"serviceCIDR,omitempty"`
 }
 
 // KratosStatus defines the observed state of Kratos.
 type KratosStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase represents the current phase of cluster provisioning
+	Phase ClusterPhase `json:"phase"`
+
+	// Conditions provide detailed information about the cluster status
+	Conditions []Condition `json:"conditions,omitempty"`
+
+	// ClusterEndpoint is the API server endpoint of the created cluster
+	ClusterEndpoint string `json:"clusterEndpoint,omitempty"`
+
+	// NodePoolsStatus gives status information of each node pool
+	NodePoolsStatus []NodePoolStatus `json:"nodePoolsStatus,omitempty"`
+
+	// ErrorMessage captures any errors encountered during provisioning
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+// Condition represents a specific condition of the cluster
+type Condition struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// NodePoolStatus represents the observed state of a node pool
+type NodePoolStatus struct {
+	Name   string `json:"name"`
+	Ready  int    `json:"ready"`
+	Total  int    `json:"total"`
+	Status string `json:"status"`
 }
 
 // +kubebuilder:object:root=true

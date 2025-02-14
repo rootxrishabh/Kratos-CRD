@@ -18,19 +18,23 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"google.golang.org/api/container/v1"
 	operatorv1 "operator.kratos.io/kratos/api/v1"
+	"operator.kratos.io/kratos/internal/cloud"
 )
 
 // KratosReconciler reconciles a Kratos object
 type KratosReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	GkeService *container.Service
 }
 
 // +kubebuilder:rbac:groups=operator.opertor.kratos.io,resources=kratos,verbs=get;list;watch;create;update;patch;delete
@@ -47,11 +51,60 @@ type KratosReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.0/pkg/reconcile
 func (r *KratosReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var kratos operatorv1.Kratos
+	if err := r.Get(ctx, req.NamespacedName, &kratos); err != nil {
+		log.Error(err, "unable to fetch Kratos")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	return ctrl.Result{}, nil
+	if !kratos.DeletionTimestamp.IsZero() {
+		if containsString(kratos.Finalizers, "kratos.finalizer") {
+			if err := cloud.DeleteCluster(ctx, r.GkeService, &kratos); err != nil {
+				log.Error(err, "failed to delete GKE cluster")
+				return ctrl.Result{}, err
+			}
+			kratos.Finalizers = removeString(kratos.Finalizers, "kratos.finalizer")
+			if err := r.Update(ctx, &kratos); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if !containsString(kratos.Finalizers, "kratos.finalizer") {
+		kratos.Finalizers = append(kratos.Finalizers, "kratos.finalizer")
+		if err := r.Update(ctx, &kratos); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	exists, err := cloud.ClusterExists(ctx, r.GkeService, &kratos)
+	if err != nil {
+		log.Error(err, "failed to check cluster existence")
+		return ctrl.Result{}, err
+	}
+
+	if !exists {
+		if err := cloud.CreateCluster(ctx, r.GkeService, &kratos); err != nil {
+			log.Error(err, "failed to create GKE cluster")
+			return ctrl.Result{}, err
+		}
+	} else {
+		if err := cloud.UpdateCluster(ctx, r.GkeService, &kratos); err != nil {
+			log.Error(err, "failed to update GKE cluster")
+			return ctrl.Result{}, err
+		}
+	}
+
+	kratos.Status.Phase = operatorv1.PhaseRunning
+	if err := r.Status().Update(ctx, &kratos); err != nil {
+		log.Error(err, "failed to update Kratos status")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute * 5}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -60,4 +113,24 @@ func (r *KratosReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&operatorv1.Kratos{}).
 		Named("kratos").
 		Complete(r)
+}
+
+// Helper functions to handle finalizers
+func containsString(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, str string) []string {
+	result := []string{}
+	for _, v := range slice {
+		if v != str {
+			result = append(result, v)
+		}
+	}
+	return result
 }

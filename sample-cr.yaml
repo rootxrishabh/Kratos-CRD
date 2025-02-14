@@ -1,0 +1,36 @@
+apiVersion: operator.opertor.kratos.io/v1
+kind: Kratos
+metadata:
+  name: my-gke-cluster
+  namespace: default
+spec:
+  clusterName: my-cluster
+  projectID: focused-veld-395216
+  region: us-central1
+
+  networking:
+    enableIPAlias: true
+    subnetName: my-subnet
+    vpcName: my-vpc
+    podCIDR: 10.0.0.0/14
+    serviceCIDR: 10.4.0.0/20
+
+  nodePools:
+    - name: default-pool
+      machineType: e2-medium
+      diskSizeGB: 50
+      nodeCount: 3
+      autoScaling: true
+      minNodes: 1
+      maxNodes: 5
+      preemptible: false
+
+    - name: high-memory-pool
+      machineType: n2-highmem-4
+      diskSizeGB: 100
+      nodeCount: 2
+      autoScaling: true
+      minNodes: 2
+      maxNodes: 6
+      preemptible: false
+

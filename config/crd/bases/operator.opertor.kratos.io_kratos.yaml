@@ -39,13 +39,126 @@ spec:
           spec:
             description: KratosSpec defines the desired state of Kratos.
             properties:
-              foo:
-                description: Foo is an example field of Kratos. Edit kratos_types.go
-                  to remove/update
+              clusterName:
+                description: ClusterName is the name of the GKE cluster to be created
                 type: string
+              networking:
+                description: Networking defines network-related settings
+                properties:
+                  enableIPAlias:
+                    type: boolean
+                  podCIDR:
+                    type: string
+                  serviceCIDR:
+                    type: string
+                  subnetName:
+                    type: string
+                  vpcName:
+                    type: string
+                required:
+                - enableIPAlias
+                - subnetName
+                - vpcName
+                type: object
+              nodePools:
+                description: NodePools defines the node pool configurations
+                items:
+                  description: NodePoolSpec defines the node pool configuration
+                  properties:
+                    autoScaling:
+                      type: boolean
+                    diskSizeGB:
+                      type: integer
+                    machineType:
+                      type: string
+                    maxNodes:
+                      type: integer
+                    minNodes:
+                      type: integer
+                    name:
+                      type: string
+                    nodeCount:
+                      type: integer
+                    preemptible:
+                      type: boolean
+                  required:
+                  - autoScaling
+                  - machineType
+                  - name
+                  - nodeCount
+                  type: object
+                type: array
+              projectID:
+                description: ProjectID specifies the Google Cloud project in which
+                  to create the cluster
+                type: string
+              region:
+                description: Region is the geographical region where the cluster will
+                  be deployed
+                type: string
+            required:
+            - clusterName
+            - networking
+            - nodePools
+            - projectID
+            - region
             type: object
           status:
             description: KratosStatus defines the observed state of Kratos.
+            properties:
+              clusterEndpoint:
+                description: ClusterEndpoint is the API server endpoint of the created
+                  cluster
+                type: string
+              conditions:
+                description: Conditions provide detailed information about the cluster
+                  status
+                items:
+                  description: Condition represents a specific condition of the cluster
+                  properties:
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              errorMessage:
+                description: ErrorMessage captures any errors encountered during provisioning
+                type: string
+              nodePoolsStatus:
+                description: NodePoolsStatus gives status information of each node
+                  pool
+                items:
+                  description: NodePoolStatus represents the observed state of a node
+                    pool
+                  properties:
+                    name:
+                      type: string
+                    ready:
+                      type: integer
+                    status:
+                      type: string
+                    total:
+                      type: integer
+                  required:
+                  - name
+                  - ready
+                  - status
+                  - total
+                  type: object
+                type: array
+              phase:
+                description: Phase represents the current phase of cluster provisioning
+                type: string
+            required:
+            - phase
             type: object
         type: object
     served: true

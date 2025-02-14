@@ -17,15 +17,23 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"github.com/rs/zerolog/log"
+	"google.golang.org/api/container/v1"
+	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -38,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	operatorv1 "operator.kratos.io/kratos/api/v1"
+	"operator.kratos.io/kratos/internal/cloud"
 	"operator.kratos.io/kratos/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -45,6 +54,11 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+)
+
+const (
+	secretName = "kratos-secret"
+	secretVal  = "googleKey"
 )
 
 func init() {
@@ -56,6 +70,7 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	var gkeService *container.Service
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -202,9 +217,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	clientset, err := getK8sClient()
+	if err != nil {
+		log.Error().Msgf("failed create clienset %s", err)
+		return
+	}
+	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		GCP_SECRET := os.Getenv("GCP_SECRET")
+		secret, _ := os.ReadFile(GCP_SECRET)
+		gkeService, err = cloud.GetGKEClient(string(secret))
+		if err != nil {
+			log.Error().Msgf("failed to create GKE client %s", err)
+			return
+		}
+	} else {
+		secret, err := clientset.CoreV1().Secrets(string(namespace)).Get(context.TODO(), secretName, metav1.GetOptions{})
+		if err != nil {
+			log.Error().Msgf("failed to find secret %s", err)
+			return
+		}
+		gkeService, err = cloud.GetGKEClient(string(secret.Data[secretVal]))
+		if err != nil {
+			log.Error().Msgf("failed to create GKE client %s", err)
+			return
+		}
+	}
+
 	if err = (&controller.KratosReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		GkeService: gkeService,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Kratos")
 		os.Exit(1)
@@ -241,4 +284,20 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getK8sClient() (*kubernetes.Clientset, error) {
+	// Try in-cluster config (if running inside Kubernetes)
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		// If not in-cluster, fallback to kubeconfig (local development)
+		kubeconfig := clientcmd.RecommendedHomeFile
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+		}
+	}
+
+	// Create Kubernetes clientset
+	return kubernetes.NewForConfig(config)
 }
